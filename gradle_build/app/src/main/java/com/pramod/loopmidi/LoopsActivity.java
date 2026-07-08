@@ -1021,6 +1021,10 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
                 }
             });
         }
+        // Reflect any recording that's already running (e.g. survived a
+        // config change) on the main-screen REC button as soon as the UI
+        // is wired up.
+        updateRecButtonUI();
 
         // Apply initial mode UI state
         updateModeButtonsUI();
@@ -2079,9 +2083,12 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
         tvStatus.setTextColor(0xFFFF8800);
         tvStatus.setTextSize(13f);
         tvStatus.setPadding(0, 0, 0, 10);
-        tvStatus.setText(trackPaths.isEmpty()
-            ? "Koi track nahi hai — 🔴 REC dabao"
-            : trackCount + " track(s) recorded");
+        tvStatus.setText(isRecordingTrack
+            ? "⏺ Recording in progress — close this popup and play pads freely, " +
+              "then reopen and tap STOP to save"
+            : (trackPaths.isEmpty()
+                ? "Koi track nahi hai — 🔴 REC dabao"
+                : trackCount + " track(s) recorded"));
         root.addView(tvStatus);
 
         // ── Source selector: MIC vs SYSTEM (internal) audio ─────────────────────
@@ -2201,12 +2208,18 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
             .setView(dialogScroll)
             .setNegativeButton("CLOSE", null);
         recDialog = builder.create();
-        // Closing the dialog (CLOSE button, back press, or tap-outside) must not
-        // leave an AudioRecord thread or MediaProjection session running.
+        // Closing the dialog (CLOSE button, back press, or tap-outside) must NOT
+        // stop an in-progress recording — both the native engine capture (SYSTEM/
+        // internal source) and the AudioRecord thread (MIC source) are held in
+        // Activity-scoped fields, not dialog-scoped ones, so they keep running
+        // happily in the background. This lets the user close the popup, play
+        // pads/loops on the main screen while it records, then come back later
+        // (tap the REC button again) and hit STOP to finalize + save.
+        // Only playback (which IS tied to this dialog's UI) is cleaned up here.
         recDialog.setOnDismissListener(dlg -> {
-            if (isRecordingTrack) stopTrackRecording();
             stopMediaPlayer();
             stopSystemAudioCapture();
+            updateRecButtonUI();
         });
 
         // Listeners
@@ -2411,6 +2424,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
             }
         });
         recordThread.start();
+        updateRecButtonUI();
     }
 
     /** Stop the current track recording. */
@@ -2418,6 +2432,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
         isRecordingTrack = false;
         if (dialogEngineRecording) {
             stopInternalEngineRecording();
+            updateRecButtonUI();
             return;
         }
         if (audioRecord != null) {
@@ -2427,6 +2442,25 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
         if (recordThread != null) {
             try { recordThread.join(2000); } catch (InterruptedException ignored) {}
             recordThread = null;
+        }
+        updateRecButtonUI();
+    }
+
+    /**
+     * Reflect the current recording state (MIC or SYSTEM/internal — both use
+     * the same {@code isRecordingTrack} flag) on the main-screen REC button,
+     * so it's obvious a recording is running in the background even after the
+     * Multi-Track Recorder popup has been closed, and gives the user an easy
+     * way back in to hit STOP.
+     */
+    private void updateRecButtonUI() {
+        if (this.btnRec == null) return;
+        if (this.isRecordingTrack) {
+            this.btnRec.setText("⏺ REC...");
+            this.btnRec.setBackgroundColor(0xFFFF0000);
+        } else {
+            this.btnRec.setText("REC");
+            this.btnRec.setBackgroundResource(R.drawable.btn_3d_dark);
         }
     }
 
@@ -2447,6 +2481,7 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
         btnRecStart.setText("⏺ RECORDING...");
         btnRecStart.setBackgroundColor(0xFFFF0000);
         tvStatus.setText("🔊 Internal (app) audio recording Track " + (trackCount + 1) + " — STOP dabao jab ho jaye");
+        updateRecButtonUI();
     }
 
     /** Stop the internal-engine capture and save it as a track WAV file. */
