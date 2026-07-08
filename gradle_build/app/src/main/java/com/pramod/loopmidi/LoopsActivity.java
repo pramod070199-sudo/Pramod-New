@@ -961,6 +961,20 @@ public class LoopsActivity extends Activity implements DialogInterface.OnClickLi
             this.btnAddLoop.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    // Default every pad to whichever mode is currently active globally
+                    // (LOOP or DRUM) before showing the pad list — mirrors the same
+                    // bulk-default behavior as the ADV panel's "+ ADD MODE" button, so
+                    // pressing Add while Drum Mode is on defaults pads to 🥁 DRUM instead
+                    // of always defaulting to 🔁 LOOP. Manual per-pad override below is
+                    // unchanged — this only sets the starting point shown in the list.
+                    for (int i = 0; i < 8; i++) {
+                        LoopsActivity.this.padDrumMode[i] = LoopsActivity.this.isGlobalDrumMode;
+                        LoopsActivity.this.prefs.edit()
+                            .putBoolean("pad_drum_mode_" + i, LoopsActivity.this.isGlobalDrumMode)
+                            .apply();
+                        LoopsActivity.this.updatePadLabel(i);
+                    }
+
                     // Step 1: which pad?
                     final String[] padNames = new String[8];
                     for (int i = 0; i < 8; i++) {
